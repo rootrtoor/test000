@@ -1,0 +1,334 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Jerry Trudell Campaign Website Infrastructure'
+
+Parameters:
+  DomainName:
+    Type: String
+    Description: 'Domain name for the campaign website'
+    Default: 'jerrytrudell2024.com'
+  
+  CertificateArn:
+    Type: String
+    Description: 'ARN of the SSL certificate for the domain'
+    Default: ''
+
+Resources:
+  # S3 Bucket for static website hosting
+  WebsiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${DomainName}-website'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: index.html
+
+  # S3 Bucket Policy for public read access
+  WebsiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebsiteBucket
+      PolicyDocument:
+        Statement:
+          - Sid: PublicReadGetObject
+            Effect: Allow
+            Principal: '*'
+            Action: 's3:GetObject'
+            Resource: !Sub '${WebsiteBucket}/*'
+
+  # CloudFront Distribution
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Origins:
+          - DomainName: !GetAtt WebsiteBucket.RegionalDomainName
+            Id: S3Origin
+            CustomOriginConfig:
+              HTTPPort: 80
+              HTTPSPort: 443
+              OriginProtocolPolicy: http-only
+        Enabled: true
+        DefaultRootObject: index.html
+        CustomErrorResponses:
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachedMethods:
+            - GET
+            - HEAD
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+        Aliases:
+          - !Ref DomainName
+          - !Sub 'www.${DomainName}'
+        ViewerCertificate:
+          AcmCertificateArn: !Ref CertificateArn
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2021
+
+  # DynamoDB Table for contact submissions
+  ContactsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: jerry-trudell-contacts
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: createdAt
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: CreatedAtIndex
+          KeySchema:
+            - AttributeName: createdAt
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      BillingMode: PAY_PER_REQUEST
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+
+  # IAM Role for Lambda functions
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: jerry-trudell-lambda-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource: !GetAtt ContactsTable.Arn
+        - PolicyName: SESAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ses:SendEmail
+                  - ses:SendRawEmail
+                Resource: '*'
+
+  # Lambda function for contact form
+  ContactFormFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: jerry-trudell-contact-form
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Environment:
+        Variables:
+          CONTACT_TABLE_NAME: !Ref ContactsTable
+          FROM_EMAIL: 'noreply@jerrytrudell2024.com'
+          TO_EMAIL: 'info@jerrytrudell2024.com'
+      Code:
+        ZipFile: |
+          const AWS = require('aws-sdk');
+          const ses = new AWS.SES({ region: 'us-east-1' });
+          const dynamodb = new AWS.DynamoDB.DocumentClient();
+
+          exports.handler = async (event) => {
+            const headers = {
+              'Access-Control-Allow-Origin': '*',
+              'Access-Control-Allow-Headers': 'Content-Type',
+              'Access-Control-Allow-Methods': 'POST, OPTIONS',
+              'Content-Type': 'application/json'
+            };
+
+            if (event.httpMethod === 'OPTIONS') {
+              return { statusCode: 200, headers, body: JSON.stringify({ message: 'CORS preflight' }) };
+            }
+
+            try {
+              const body = JSON.parse(event.body);
+              const { firstName, lastName, email, subject, message, newsletter } = body;
+
+              if (!firstName || !lastName || !email || !subject || !message) {
+                return {
+                  statusCode: 400,
+                  headers,
+                  body: JSON.stringify({ success: false, message: 'All fields are required' })
+                };
+              }
+
+              const contactSubmission = {
+                id: Date.now().toString(),
+                firstName, lastName, email, subject, message,
+                newsletter: newsletter || false,
+                createdAt: new Date().toISOString(),
+                timestamp: Date.now()
+              };
+
+              await dynamodb.put({
+                TableName: process.env.CONTACT_TABLE_NAME,
+                Item: contactSubmission
+              }).promise();
+
+              const emailParams = {
+                Source: process.env.FROM_EMAIL,
+                Destination: { ToAddresses: [process.env.TO_EMAIL] },
+                Message: {
+                  Subject: { Data: `Campaign Contact: ${subject}`, Charset: 'UTF-8' },
+                  Body: {
+                    Text: {
+                      Data: `New contact form submission:\n\nName: ${firstName} ${lastName}\nEmail: ${email}\nSubject: ${subject}\nNewsletter: ${newsletter ? 'Yes' : 'No'}\n\nMessage:\n${message}\n\nSubmitted at: ${new Date().toLocaleString()}`,
+                      Charset: 'UTF-8'
+                    }
+                  }
+                }
+              };
+
+              await ses.sendEmail(emailParams).promise();
+
+              return {
+                statusCode: 200,
+                headers,
+                body: JSON.stringify({ success: true, message: 'Contact form submitted successfully' })
+              };
+
+            } catch (error) {
+              console.error('Error processing contact form:', error);
+              return {
+                statusCode: 500,
+                headers,
+                body: JSON.stringify({ success: false, message: 'Internal server error' })
+              };
+            }
+          };
+
+  # API Gateway for Lambda function
+  ApiGateway:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: jerry-trudell-api
+      Description: 'API for Jerry Trudell Campaign Website'
+      EndpointConfiguration:
+        Types:
+          - EDGE
+
+  # API Gateway Resource
+  ApiResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ParentId: !GetAtt ApiGateway.RootResourceId
+      PathPart: contact
+
+  # API Gateway Method
+  ApiMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref ApiResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ContactFormFunction.Arn}/invocations'
+
+  # API Gateway Options Method for CORS
+  ApiOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref ApiResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+            ResponseTemplates:
+              application/json: ''
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+
+  # API Gateway Deployment
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - ApiMethod
+      - ApiOptionsMethod
+    Properties:
+      RestApiId: !Ref ApiGateway
+      StageName: prod
+
+  # Lambda Permission for API Gateway
+  LambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ContactFormFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:apigateway:${AWS::Region}::/restapis/${ApiGateway}/stages/prod/POST/contact'
+
+Outputs:
+  WebsiteURL:
+    Description: 'URL of the campaign website'
+    Value: !Sub 'https://${DomainName}'
+    Export:
+      Name: !Sub '${AWS::StackName}-WebsiteURL'
+
+  S3BucketName:
+    Description: 'Name of the S3 bucket for website hosting'
+    Value: !Ref WebsiteBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-S3BucketName'
+
+  CloudFrontDistributionId:
+    Description: 'CloudFront Distribution ID'
+    Value: !Ref CloudFrontDistribution
+    Export:
+      Name: !Sub '${AWS::StackName}-CloudFrontDistributionId'
+
+  ApiGatewayUrl:
+    Description: 'API Gateway URL'
+    Value: !Sub 'https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/prod'
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiGatewayUrl'

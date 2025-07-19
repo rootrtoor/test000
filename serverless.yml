@@ -1,0 +1,60 @@
+service: jerry-trudell-campaign
+
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+  stage: ${opt:stage, 'prod'}
+  region: us-east-1
+  environment:
+    CONTACT_TABLE_NAME: ${self:service}-${self:provider.stage}-contacts
+    FROM_EMAIL: noreply@jerrytrudell2024.com
+    TO_EMAIL: info@jerrytrudell2024.com
+  
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - dynamodb:PutItem
+        - dynamodb:GetItem
+        - dynamodb:Query
+        - dynamodb:Scan
+      Resource: 
+        - "arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.CONTACT_TABLE_NAME}"
+    - Effect: Allow
+      Action:
+        - ses:SendEmail
+        - ses:SendRawEmail
+      Resource: "*"
+
+functions:
+  contactForm:
+    handler: lambda/contact-form.handler
+    events:
+      - http:
+          path: /api/contact
+          method: post
+          cors: true
+      - http:
+          path: /api/contact
+          method: options
+          cors: true
+
+resources:
+  Resources:
+    ContactsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.CONTACT_TABLE_NAME}
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        BillingMode: PAY_PER_REQUEST
+        StreamSpecification:
+          StreamViewType: NEW_AND_OLD_IMAGES
+
+plugins:
+  - serverless-offline

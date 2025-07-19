@@ -1,0 +1,14 @@
+[build]
+  publish = "dist/public"
+  command = "npm run build"
+
+[[redirects]]
+  from = "/api/*"
+  to = "https://your-api-gateway-url.execute-api.region.amazonaws.com/prod/api/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

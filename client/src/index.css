@@ -1,0 +1,115 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Merriweather:wght@300;400;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: hsl(210, 20%, 98%);
+  --foreground: hsl(210, 9%, 11%);
+  --muted: hsl(210, 11%, 96%);
+  --muted-foreground: hsl(210, 6%, 46%);
+  --popover: hsl(0, 0%, 100%);
+  --popover-foreground: hsl(210, 9%, 11%);
+  --card: hsl(0, 0%, 100%);
+  --card-foreground: hsl(210, 9%, 11%);
+  --border: hsl(210, 12%, 90%);
+  --input: hsl(210, 12%, 90%);
+  --primary: hsl(217, 78%, 32%);
+  --primary-foreground: hsl(210, 40%, 98%);
+  --secondary: hsl(210, 11%, 96%);
+  --secondary-foreground: hsl(210, 9%, 11%);
+  --accent: hsl(210, 11%, 96%);
+  --accent-foreground: hsl(210, 9%, 11%);
+  --destructive: hsl(0, 74%, 50%);
+  --destructive-foreground: hsl(0, 0%, 98%);
+  --ring: hsl(217, 78%, 32%);
+  --radius: 0.5rem;
+  
+  /* Campaign specific colors */
+  --campaign-blue: hsl(217, 78%, 32%);
+  --campaign-red: hsl(0, 74%, 50%);
+  --campaign-green: hsl(158, 100%, 20%);
+  --campaign-gold: hsl(38, 92%, 50%);
+  --campaign-bg: hsl(210, 20%, 98%);
+  --campaign-text: hsl(210, 9%, 11%);
+}
+
+.dark {
+  --background: hsl(240, 10%, 3.9%);
+  --foreground: hsl(0, 0%, 98%);
+  --muted: hsl(240, 3.7%, 15.9%);
+  --muted-foreground: hsl(240, 5%, 64.9%);
+  --popover: hsl(240, 10%, 3.9%);
+  --popover-foreground: hsl(0, 0%, 98%);
+  --card: hsl(240, 10%, 3.9%);
+  --card-foreground: hsl(0, 0%, 98%);
+  --border: hsl(240, 3.7%, 15.9%);
+  --input: hsl(240, 3.7%, 15.9%);
+  --primary: hsl(217, 78%, 32%);
+  --primary-foreground: hsl(210, 40%, 98%);
+  --secondary: hsl(240, 3.7%, 15.9%);
+  --secondary-foreground: hsl(0, 0%, 98%);
+  --accent: hsl(240, 3.7%, 15.9%);
+  --accent-foreground: hsl(0, 0%, 98%);
+  --destructive: hsl(0, 62.8%, 30.6%);
+  --destructive-foreground: hsl(0, 0%, 98%);
+  --ring: hsl(240, 4.9%, 83.9%);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply font-serif antialiased bg-campaign-bg text-campaign-text;
+    font-family: 'Merriweather', serif;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Inter', sans-serif;
+  }
+}
+
+@layer utilities {
+  .campaign-blue {
+    color: var(--campaign-blue);
+  }
+  
+  .bg-campaign-blue {
+    background-color: var(--campaign-blue);
+  }
+  
+  .campaign-red {
+    color: var(--campaign-red);
+  }
+  
+  .bg-campaign-red {
+    background-color: var(--campaign-red);
+  }
+  
+  .campaign-green {
+    color: var(--campaign-green);
+  }
+  
+  .bg-campaign-green {
+    background-color: var(--campaign-green);
+  }
+  
+  .campaign-gold {
+    color: var(--campaign-gold);
+  }
+  
+  .bg-campaign-gold {
+    background-color: var(--campaign-gold);
+  }
+  
+  .text-campaign-text {
+    color: var(--campaign-text);
+  }
+  
+  .bg-campaign-bg {
+    background-color: var(--campaign-bg);
+  }
+}
